@@ -1,11 +1,18 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"strconv"
 	"time"
 
+	"github.com/berrybyte-net/strawberry/config"
+	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
@@ -15,22 +22,55 @@ func main() {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
-	cm := &autocert.Manager{
-		Cache:  autocert.DirCache("certs"),
-		Prompt: autocert.AcceptTOS,
-		Email:  "ssl@amogus.systems",
+	logger.Info("reading configuration from file", zap.String("config_path", "config.toml"))
+	cfg, err := config.ParseFile("config.toml")
+	if err != nil {
+		logger.Fatal("could not read configuration from file", zap.Error(err))
 	}
 
-	httpSrv := &http.Server{
-		Addr: ":http",
-		Handler: cm.HTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			host, _, err := net.SplitHostPort(r.RemoteAddr)
-			if err != nil {
-				logger.Error("could not split host and port from remote addr", zap.Error(err))
+	logger.Info(
+		"creating redis client",
+		zap.String("host", cfg.Redis.Host),
+		zap.Int("port", cfg.Redis.Port),
+	)
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Host + ":" + strconv.Itoa(cfg.Redis.Port),
+		Password: "",
+	})
+	if _, err := rdb.Ping(context.Background()).Result(); err != nil {
+		logger.Fatal("could not ping redis server", zap.Error(err))
+	}
+
+	logger.Info(
+		"creating certificate manager",
+		zap.String("cert_directory", cfg.CertDirectory),
+		zap.String("directory_url", cfg.ACME.DirectoryURL),
+		zap.String("email", cfg.ACME.Email),
+	)
+	cm := &autocert.Manager{
+		Prompt: autocert.AcceptTOS,
+		Cache:  autocert.DirCache(cfg.CertDirectory),
+		HostPolicy: func(ctx context.Context, host string) error {
+			if _, err := rdb.Get(ctx, "strawberry-"+host).Result(); err != nil {
+				return fmt.Errorf("host %q not configured in whitelist", host)
 			}
 
-			http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusMovedPermanently)
-		})),
+			return nil
+		},
+		Client: &acme.Client{
+			DirectoryURL: cfg.ACME.DirectoryURL,
+			UserAgent:    "autocert",
+		},
+		Email: cfg.ACME.Email,
+	}
+
+	logger.Info("configuring http server")
+	httpSrv := &http.Server{
+		Addr: ":http",
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Server", "strawberry")
+			http.Redirect(w, r, "https://"+stripPort(r.Host)+r.URL.RequestURI(), http.StatusMovedPermanently)
+		}),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
@@ -40,23 +80,55 @@ func main() {
 		}
 	}()
 
+	logger.Info("configuring https server")
 	httpsSrv := &http.Server{
 		Addr: ":https",
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("Hello, world!"))
+			w.Header().Set("Server", "strawberry")
+
+			host := stripPort(r.Host)
+			target, err := rdb.Get(r.Context(), "strawberry-"+host).Result()
+			if err != nil {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.Header().Set("X-Content-Type-Options", "nosniff")
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, "host %q not configured in whitelist\n", host)
+				return
+			}
+
+			targetURL, err := url.Parse(target)
+			if err != nil {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.Header().Set("X-Content-Type-Options", "nosniff")
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, "could not parse target host: %s\n", err)
+				return
+			}
+
+			httputil.NewSingleHostReverseProxy(targetURL).ServeHTTP(w, r)
 		}),
 		TLSConfig: &tls.Config{
 			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				logger.Debug("getting certificate using client hello info", zap.String("server_name", hello.ServerName))
 				return cm.GetCertificate(hello)
 			},
 		},
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
-	httpsSrv.TLSConfig.NextProtos = append(httpsSrv.TLSConfig.NextProtos, acme.ALPNProto) // enable tls-alpn ACME challenges
+	httpsSrv.TLSConfig.NextProtos = append(httpsSrv.TLSConfig.NextProtos, acme.ALPNProto)
 
 	if err := httpsSrv.ListenAndServeTLS("", ""); err != nil {
 		logger.Fatal("could not listen and serve https", zap.Error(err))
 	}
+}
+
+// stripPort splits a network address of the form "host:port", "host%zone:port", "[host]:port" or
+// "[host%zone]:port" into host.
+func stripPort(hostport string) string {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return hostport
+	}
+
+	return host
 }
