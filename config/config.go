@@ -22,6 +22,7 @@ type Redis struct {
 	Port int    `toml:"port"`
 }
 
+// ParseFile returns a new Config that's decoded using the given path.
 func ParseFile(p string) (Config, error) {
 	var cfg Config
 	if _, err := toml.DecodeFile(filepath.Clean(p), &cfg); err != nil {
