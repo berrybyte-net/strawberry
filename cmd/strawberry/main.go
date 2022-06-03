@@ -69,10 +69,13 @@ func main() {
 		Addr: ":http",
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Server", "strawberry")
+			w.Header().Set("Connection", "close")
+
 			http.Redirect(w, r, "https://"+stripPort(r.Host)+r.URL.RequestURI(), http.StatusMovedPermanently)
 		}),
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil {
@@ -92,6 +95,7 @@ func main() {
 				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 				w.Header().Set("X-Content-Type-Options", "nosniff")
 				w.WriteHeader(http.StatusBadRequest)
+
 				fmt.Fprintf(w, "host %q not configured in whitelist\n", host)
 				return
 			}
@@ -101,6 +105,7 @@ func main() {
 				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 				w.Header().Set("X-Content-Type-Options", "nosniff")
 				w.WriteHeader(http.StatusBadRequest)
+
 				fmt.Fprintf(w, "could not parse target host: %s\n", err)
 				return
 			}
@@ -111,19 +116,36 @@ func main() {
 			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 				return cm.GetCertificate(hello)
 			},
+			NextProtos: []string{
+				"h2", "http/1.1", // enable HTTP/2
+				acme.ALPNProto, // enable tls-alpn ACME challenges
+			},
+			// https://blog.cloudflare.com/exposing-go-on-the-internet/
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+			},
+			MinVersion: tls.VersionTLS12,
+			MaxVersion: tls.VersionTLS13,
+			CurvePreferences: []tls.CurveID{
+				tls.CurveP256,
+			},
 		},
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
-	httpsSrv.TLSConfig.NextProtos = append(httpsSrv.TLSConfig.NextProtos, acme.ALPNProto)
-
 	if err := httpsSrv.ListenAndServeTLS("", ""); err != nil {
 		logger.Fatal("could not listen and serve https", zap.Error(err))
 	}
 }
 
-// stripPort splits a network address of the form "host:port", "host%zone:port", "[host]:port" or
-// "[host%zone]:port" into host.
+// stripPort strips port from a network address of the form "host:port", "host%zone:port", "[host]:port" or
+// "[host%zone]:port".
 func stripPort(hostport string) string {
 	host, _, err := net.SplitHostPort(hostport)
 	if err != nil {
