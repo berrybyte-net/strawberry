@@ -8,8 +8,16 @@ import (
 
 type Config struct {
 	CertDirectory string `toml:"cert_directory"`
+	API           API    `toml:"api"`
 	ACME          ACME   `toml:"acme"`
 	Redis         Redis  `toml:"redis"`
+}
+
+type API struct {
+	UseSSL       bool     `toml:"use_ssl"`
+	Port         int      `toml:"port"`
+	Token        string   `toml:"token"`
+	AllowedHosts []string `toml:"allowed_hosts"`
 }
 
 type ACME struct {
@@ -18,8 +26,9 @@ type ACME struct {
 }
 
 type Redis struct {
-	Host string `toml:"host"`
-	Port int    `toml:"port"`
+	Host     string `toml:"host"`
+	Port     int    `toml:"port"`
+	Password string `toml:"password"`
 }
 
 // ParseFile returns a new Config that's decoded using the given path.
