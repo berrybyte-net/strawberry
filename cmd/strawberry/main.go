@@ -62,7 +62,7 @@ func main() {
 		Cache:  autocert.DirCache(cfg.CertDirectory),
 		HostPolicy: func(ctx context.Context, host string) error {
 			if _, err := rcli.Get(ctx, "strawberry:"+host).Result(); err != nil {
-				return fmt.Errorf("host %q not configured in whitelist", host)
+				return fmt.Errorf("no reverse host matching %q could be found", host)
 			}
 
 			return nil
@@ -154,7 +154,7 @@ func main() {
 				w.Header().Set("X-Content-Type-Options", "nosniff")
 				w.WriteHeader(http.StatusUnauthorized)
 
-				fmt.Fprintln(w, "you are not authorized to access this endpoint")
+				fmt.Fprintln(w, "unauthorized to access this endpoint")
 				return
 			}
 
