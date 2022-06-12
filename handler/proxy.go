@@ -25,7 +25,7 @@ func (h *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(http.StatusBadRequest)
 
-		fmt.Fprintf(w, "host %q not configured in whitelist\n", host)
+		fmt.Fprintf(w, "no reverse host matching %q could be found\n", host)
 		return
 	}
 
