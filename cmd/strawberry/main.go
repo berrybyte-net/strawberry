@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
+	"flag"
 	"net"
 	"net/http"
 	"strconv"
@@ -12,6 +12,8 @@ import (
 
 	"github.com/berrybyte-net/strawberry/config"
 	"github.com/berrybyte-net/strawberry/handler"
+	"github.com/berrybyte-net/strawberry/repository"
+	"github.com/go-chi/render"
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/acme"
@@ -20,14 +22,18 @@ import (
 )
 
 func main() {
+	var cfgPath string
+	flag.StringVar(&cfgPath, "config", "config.toml", "path to configuration file")
+	flag.Parse()
+
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
 	logger.Info(
 		"reading configuration from file",
-		zap.String("config_path", "config.toml"),
+		zap.String("config_path", cfgPath),
 	)
-	cfg, err := config.ParseFile("config.toml")
+	cfg, err := config.ParseFile(cfgPath)
 	if err != nil {
 		logger.Fatal(
 			"could not read configuration from file",
@@ -50,6 +56,7 @@ func main() {
 			zap.Error(err),
 		)
 	}
+	repo := repository.NewRedis(rcli, cfg.Redis.Prefix)
 
 	logger.Info(
 		"creating certificate manager",
@@ -61,8 +68,8 @@ func main() {
 		Prompt: autocert.AcceptTOS,
 		Cache:  autocert.DirCache(cfg.CertDirectory),
 		HostPolicy: func(ctx context.Context, host string) error {
-			if _, err := rcli.Get(ctx, "strawberry:"+host).Result(); err != nil {
-				return fmt.Errorf("no reverse host matching %q could be found", host)
+			if _, err := repo.Seed(ctx, host); err != nil {
+				return err
 			}
 
 			return nil
@@ -76,27 +83,26 @@ func main() {
 
 	logger.Info("configuring http server")
 	httpSrv := &http.Server{
-		Addr:         ":http",
-		Handler:      &handler.Redirect{},
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:           ":80",
+		Handler:        handler.NewRedirect(),
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   15 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: cfg.MaxHeaderBytes,
 	}
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil {
-			logger.Error(
+			logger.Fatal(
 				"could not listen and serve http",
 				zap.Error(err),
 			)
 		}
 	}()
 
-	logger.Info("configuring https server")
-	httpsSrv := &http.Server{
-		Addr: ":https",
-		Handler: &handler.Proxy{
-			Rcli: rcli,
-		},
+	logger.Info("configuring http2 server")
+	http2Srv := &http.Server{
+		Addr:    ":443",
+		Handler: handler.NewForward(repo, cfg.MaxBodyBytes),
 		TLSConfig: &tls.Config{
 			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 				return cm.GetCertificate(hello)
@@ -123,23 +129,21 @@ func main() {
 				tls.CurveP256,
 			},
 		},
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   15 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: cfg.MaxHeaderBytes,
 	}
 	go func() {
-		if err := httpsSrv.ListenAndServeTLS("", ""); err != nil {
-			logger.Error(
-				"could not listen and serve https",
+		if err := http2Srv.ListenAndServeTLS("", ""); err != nil {
+			logger.Fatal(
+				"could not listen and serve http2",
 				zap.Error(err),
 			)
 		}
 	}()
 
 	logger.Info("configuring rest api server")
-	putRHostHandler := &handler.PutRHost{
-		Rcli: rcli,
-	}
 	apiSrv := &http.Server{
 		Addr: ":" + strconv.Itoa(cfg.API.Port),
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -148,25 +152,24 @@ func main() {
 			auth := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
 			if len(auth) != 2 ||
 				auth[0] != "Bearer" ||
-				!slices.Contains(cfg.API.AllowedHosts, stripPort(r.RemoteAddr)) ||
+				!slices.Contains(cfg.API.AllowedIPs, stripPort(r.RemoteAddr)) ||
+				cfg.API.Token == "" ||
 				auth[1] != cfg.API.Token {
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				w.Header().Set("X-Content-Type-Options", "nosniff")
-				w.WriteHeader(http.StatusUnauthorized)
-
-				fmt.Fprintln(w, "unauthorized to access this endpoint")
+				render.Status(r, http.StatusUnauthorized)
+				render.JSON(w, r, map[string]string{
+					"message": "Unauthorized to access this endpoint.",
+				})
 				return
 			}
 
 			switch r.Method {
 			case http.MethodPut:
-				putRHostHandler.ServeHTTP(w, r)
+				handler.NewPutSeed(repo).ServeHTTP(w, r)
 			default:
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				w.Header().Set("X-Content-Type-Options", "nosniff")
-				w.WriteHeader(http.StatusNotFound)
-
-				fmt.Fprintln(w, "404 page not found")
+				render.Status(r, http.StatusNotFound)
+				render.JSON(w, r, map[string]string{
+					"message": "Not found.",
+				})
 			}
 		}),
 		ReadTimeout:  10 * time.Second,
@@ -207,7 +210,6 @@ func main() {
 			)
 		}
 	}
-
 	if err := apiSrv.ListenAndServe(); err != nil {
 		logger.Fatal(
 			"could not listen and serve api",

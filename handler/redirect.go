@@ -7,7 +7,9 @@ import (
 
 type Redirect struct{}
 
-var _ http.Handler = (*Redirect)(nil)
+func NewRedirect() http.Handler {
+	return &Redirect{}
+}
 
 func (h *Redirect) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Server", "strawberry")

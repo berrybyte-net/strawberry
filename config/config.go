@@ -7,17 +7,19 @@ import (
 )
 
 type Config struct {
-	CertDirectory string `toml:"cert_directory"`
-	API           API    `toml:"api"`
-	ACME          ACME   `toml:"acme"`
-	Redis         Redis  `toml:"redis"`
+	CertDirectory  string `toml:"cert_directory"`
+	MaxBodyBytes   int    `toml:"max_body_bytes"`
+	MaxHeaderBytes int    `toml:"max_header_bytes"`
+	API            API    `toml:"api"`
+	ACME           ACME   `toml:"acme"`
+	Redis          Redis  `toml:"redis"`
 }
 
 type API struct {
-	UseSSL       bool     `toml:"use_ssl"`
-	Port         int      `toml:"port"`
-	Token        string   `toml:"token"`
-	AllowedHosts []string `toml:"allowed_hosts"`
+	UseSSL     bool     `toml:"use_ssl"`
+	Port       int      `toml:"port"`
+	Token      string   `toml:"token"`
+	AllowedIPs []string `toml:"allowed_ips"`
 }
 
 type ACME struct {
@@ -26,6 +28,7 @@ type ACME struct {
 }
 
 type Redis struct {
+	Prefix   string `toml:"prefix"`
 	Host     string `toml:"host"`
 	Port     int    `toml:"port"`
 	Password string `toml:"password"`

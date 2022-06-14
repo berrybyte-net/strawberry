@@ -1,0 +1,21 @@
+cert_directory = "/etc/strawberry/certs"
+# 10MB
+max_header_bytes = 1000000
+# 100MB
+max_body_bytes = 100000000
+
+[api]
+use_ssl = true
+port = 8443
+token = ""
+allowed_ips = []
+
+[acme]
+email = ""
+directory_url = "https://acme-v02.api.letsencrypt.org/directory"
+
+[redis]
+prefix = "strawberry"
+host = "localhost"
+port = 6379
+password = ""
