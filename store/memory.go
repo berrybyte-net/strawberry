@@ -1,4 +1,4 @@
-package repository
+package store
 
 import (
 	"context"
@@ -8,9 +8,7 @@ type Memory struct {
 	seeds map[string]string
 }
 
-var _ Seed = (*Memory)(nil)
-
-func NewMemory() *Memory {
+func NewMemory() Store {
 	return &Memory{
 		seeds: make(map[string]string),
 	}
@@ -21,7 +19,7 @@ func (m *Memory) Seed(ctx context.Context, name string) (string, error) {
 		return tgt, nil
 	}
 
-	return "", ErrNoSeedFound
+	return "", &noSeedFoundError{name: name}
 }
 
 func (m *Memory) PutSeed(ctx context.Context, name, target string) error {
@@ -30,5 +28,10 @@ func (m *Memory) PutSeed(ctx context.Context, name, target string) error {
 	}
 
 	m.seeds[name] = target
+	return nil
+}
+
+func (m *Memory) DeleteSeed(ctx context.Context, name string) error {
+	delete(m.seeds, name)
 	return nil
 }

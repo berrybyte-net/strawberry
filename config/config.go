@@ -10,6 +10,7 @@ type Config struct {
 	CertDirectory  string `toml:"cert_directory"`
 	MaxBodyBytes   int    `toml:"max_body_bytes"`
 	MaxHeaderBytes int    `toml:"max_header_bytes"`
+	StrictSNIHost  bool   `toml:"strict_sni_host"`
 	API            API    `toml:"api"`
 	ACME           ACME   `toml:"acme"`
 	Redis          Redis  `toml:"redis"`
@@ -34,7 +35,7 @@ type Redis struct {
 	Password string `toml:"password"`
 }
 
-// ParseFile returns a new Config that's decoded using the given path.
+// ParseFile returns a new decoded Config using given path.
 func ParseFile(p string) (Config, error) {
 	var cfg Config
 	if _, err := toml.DecodeFile(filepath.Clean(p), &cfg); err != nil {

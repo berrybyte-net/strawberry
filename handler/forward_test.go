@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/berrybyte-net/strawberry/repository"
+	"github.com/berrybyte-net/strawberry/store"
 	"github.com/go-chi/render"
 	"github.com/stretchr/testify/assert"
 )
@@ -22,15 +22,16 @@ func TestForward(t *testing.T) {
 	}))
 	defer tgts.Close()
 
-	repo := repository.NewMemory()
+	stor := store.NewMemory()
 	// 100MB
-	fs := httptest.NewServer(NewForward(repo, 100000000))
+	fs := httptest.NewServer(NewForward(stor, 100000000, false))
 	defer fs.Close()
 
-	repo.PutSeed(context.Background(), stripPort(strings.TrimPrefix(fs.URL, "http://")), tgts.URL)
+	stor.PutSeed(context.Background(), stripPort(strings.TrimPrefix(fs.URL, "http://")), tgts.URL)
 
 	resp, err := http.Get(fs.URL)
 	assert.Nil(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	body, err := io.ReadAll(resp.Body)
 	assert.Nil(t, err)
 	defer resp.Body.Close()

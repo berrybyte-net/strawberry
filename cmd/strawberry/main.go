@@ -12,7 +12,8 @@ import (
 
 	"github.com/berrybyte-net/strawberry/config"
 	"github.com/berrybyte-net/strawberry/handler"
-	"github.com/berrybyte-net/strawberry/repository"
+	"github.com/berrybyte-net/strawberry/store"
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
@@ -26,49 +27,46 @@ func main() {
 	flag.StringVar(&cfgPath, "config", "config.toml", "path to configuration file")
 	flag.Parse()
 
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	lgr, _ := zap.NewProduction()
+	defer lgr.Sync()
 
-	logger.Info(
+	lgr.Info(
 		"reading configuration from file",
 		zap.String("config_path", cfgPath),
 	)
 	cfg, err := config.ParseFile(cfgPath)
 	if err != nil {
-		logger.Fatal(
+		lgr.Fatal(
 			"could not read configuration from file",
+			zap.String("config_path", cfgPath),
 			zap.Error(err),
 		)
 	}
 
-	logger.Info(
-		"creating redis client",
-		zap.String("host", cfg.Redis.Host),
-		zap.Int("port", cfg.Redis.Port),
-	)
 	rcli := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Host + ":" + strconv.Itoa(cfg.Redis.Port),
 		Password: cfg.Redis.Password,
 	})
+	lgr.Info(
+		"pinging redis server",
+		zap.String("host", cfg.Redis.Host),
+		zap.Int("port", cfg.Redis.Port),
+	)
 	if _, err := rcli.Ping(context.Background()).Result(); err != nil {
-		logger.Fatal(
+		lgr.Fatal(
 			"could not ping redis server",
+			zap.String("host", cfg.Redis.Host),
+			zap.Int("port", cfg.Redis.Port),
 			zap.Error(err),
 		)
 	}
-	repo := repository.NewRedis(rcli, cfg.Redis.Prefix)
 
-	logger.Info(
-		"creating certificate manager",
-		zap.String("cert_directory", cfg.CertDirectory),
-		zap.String("directory_url", cfg.ACME.DirectoryURL),
-		zap.String("email", cfg.ACME.Email),
-	)
-	cm := &autocert.Manager{
+	stor := store.NewRedis(rcli, cfg.Redis.Prefix)
+	cmgr := &autocert.Manager{
 		Prompt: autocert.AcceptTOS,
 		Cache:  autocert.DirCache(cfg.CertDirectory),
 		HostPolicy: func(ctx context.Context, host string) error {
-			if _, err := repo.Seed(ctx, host); err != nil {
+			if _, err := stor.Seed(ctx, host); err != nil {
 				return err
 			}
 
@@ -81,7 +79,6 @@ func main() {
 		Email: cfg.ACME.Email,
 	}
 
-	logger.Info("configuring http server")
 	httpSrv := &http.Server{
 		Addr:           ":80",
 		Handler:        handler.NewRedirect(),
@@ -91,21 +88,27 @@ func main() {
 		MaxHeaderBytes: cfg.MaxHeaderBytes,
 	}
 	go func() {
+		lgr.Info(
+			"configuring http server",
+			zap.String("host", "0.0.0.0"),
+			zap.Int("port", 80),
+		)
 		if err := httpSrv.ListenAndServe(); err != nil {
-			logger.Fatal(
+			lgr.Fatal(
 				"could not listen and serve http",
+				zap.String("host", "0.0.0.0"),
+				zap.Int("port", 80),
 				zap.Error(err),
 			)
 		}
 	}()
 
-	logger.Info("configuring http2 server")
 	http2Srv := &http.Server{
 		Addr:    ":443",
-		Handler: handler.NewForward(repo, cfg.MaxBodyBytes),
+		Handler: handler.NewForward(stor, cfg.MaxBodyBytes, cfg.StrictSNIHost),
 		TLSConfig: &tls.Config{
 			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				return cm.GetCertificate(hello)
+				return cmgr.GetCertificate(hello)
 			},
 			NextProtos: []string{
 				// Enable HTTP/2
@@ -135,20 +138,24 @@ func main() {
 		MaxHeaderBytes: cfg.MaxHeaderBytes,
 	}
 	go func() {
+		lgr.Info(
+			"configuring http2 server",
+			zap.String("host", "0.0.0.0"),
+			zap.Int("port", 443),
+		)
 		if err := http2Srv.ListenAndServeTLS("", ""); err != nil {
-			logger.Fatal(
+			lgr.Fatal(
 				"could not listen and serve http2",
+				zap.String("host", "0.0.0.0"),
+				zap.Int("port", 443),
 				zap.Error(err),
 			)
 		}
 	}()
 
-	logger.Info("configuring rest api server")
-	apiSrv := &http.Server{
-		Addr: ":" + strconv.Itoa(cfg.API.Port),
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Server", "strawberry")
-
+	apiRtr := chi.NewRouter()
+	apiRtr.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			auth := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
 			if len(auth) != 2 ||
 				auth[0] != "Bearer" ||
@@ -162,16 +169,15 @@ func main() {
 				return
 			}
 
-			switch r.Method {
-			case http.MethodPut:
-				handler.NewPutSeed(repo).ServeHTTP(w, r)
-			default:
-				render.Status(r, http.StatusNotFound)
-				render.JSON(w, r, map[string]string{
-					"message": "Not found.",
-				})
-			}
-		}),
+			next.ServeHTTP(w, r)
+		})
+	})
+	apiRtr.Delete("/seeds/{name}", handler.NewDeleteSeed(stor).ServeHTTP)
+	apiRtr.Put("/seeds", handler.NewPutSeed(stor).ServeHTTP)
+
+	apiSrv := &http.Server{
+		Addr:         ":" + strconv.Itoa(cfg.API.Port),
+		Handler:      apiRtr,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -179,7 +185,7 @@ func main() {
 	if cfg.API.UseSSL {
 		apiSrv.TLSConfig = &tls.Config{
 			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				return cm.GetCertificate(hello)
+				return cmgr.GetCertificate(hello)
 			},
 			NextProtos: []string{
 				// Enable HTTP/2
@@ -203,16 +209,25 @@ func main() {
 				tls.CurveP256,
 			},
 		}
+		lgr.Info(
+			"configuring api server",
+			zap.String("host", "0.0.0.0"),
+			zap.Int("port", cfg.API.Port),
+		)
 		if err := apiSrv.ListenAndServeTLS("", ""); err != nil {
-			logger.Fatal(
+			lgr.Fatal(
 				"could not listen and serve api",
+				zap.String("host", "0.0.0.0"),
+				zap.Int("port", cfg.API.Port),
 				zap.Error(err),
 			)
 		}
 	}
 	if err := apiSrv.ListenAndServe(); err != nil {
-		logger.Fatal(
+		lgr.Fatal(
 			"could not listen and serve api",
+			zap.String("host", "0.0.0.0"),
+			zap.Int("port", cfg.API.Port),
 			zap.Error(err),
 		)
 	}
