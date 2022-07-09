@@ -4,6 +4,7 @@ max_header_bytes = 1000000
 # 100MB
 max_body_bytes = 100000000
 strict_sni_host = true
+hsts = true
 
 [api]
 use_ssl = true

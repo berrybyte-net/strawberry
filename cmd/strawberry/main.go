@@ -81,7 +81,7 @@ func main() {
 
 	httpSrv := &http.Server{
 		Addr:           ":80",
-		Handler:        handler.NewRedirect(),
+		Handler:        cmgr.HTTPHandler(handler.NewRedirect()),
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   15 * time.Second,
 		IdleTimeout:    120 * time.Second,
@@ -105,7 +105,7 @@ func main() {
 
 	http2Srv := &http.Server{
 		Addr:    ":443",
-		Handler: handler.NewForward(stor, cfg.MaxBodyBytes, cfg.StrictSNIHost),
+		Handler: handler.NewForward(stor, cfg.MaxBodyBytes, cfg.StrictSNIHost, cfg.HSTS),
 		TLSConfig: &tls.Config{
 			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 				return cmgr.GetCertificate(hello)
@@ -130,6 +130,7 @@ func main() {
 			MaxVersion: tls.VersionTLS13,
 			CurvePreferences: []tls.CurveID{
 				tls.CurveP256,
+				tls.X25519,
 			},
 		},
 		ReadTimeout:    10 * time.Second,
@@ -207,6 +208,7 @@ func main() {
 			MaxVersion: tls.VersionTLS13,
 			CurvePreferences: []tls.CurveID{
 				tls.CurveP256,
+				tls.X25519,
 			},
 		}
 		lgr.Info(

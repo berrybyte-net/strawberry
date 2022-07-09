@@ -13,18 +13,23 @@ type Forward struct {
 	stor          store.Store
 	maxBodyBytes  int
 	strictSNIHost bool
+	hsts          bool
 }
 
-func NewForward(stor store.Store, maxBodyBytes int, strictSNIHost bool) http.Handler {
+func NewForward(stor store.Store, maxBodyBytes int, strictSNIHost, hsts bool) http.Handler {
 	return &Forward{
 		stor:          stor,
 		maxBodyBytes:  maxBodyBytes,
 		strictSNIHost: strictSNIHost,
+		hsts:          hsts,
 	}
 }
 
 func (h *Forward) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Server", "strawberry")
+	if h.hsts {
+		w.Header().Add("Strict-Transport-Security", "max-age=1089000000; includeSubDomains")
+	}
 
 	if r.TLS != nil && h.strictSNIHost && r.TLS.ServerName != stripPort(r.Host) {
 		render.Status(r, http.StatusBadRequest)

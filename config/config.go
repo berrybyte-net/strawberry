@@ -11,6 +11,7 @@ type Config struct {
 	MaxBodyBytes   int    `toml:"max_body_bytes"`
 	MaxHeaderBytes int    `toml:"max_header_bytes"`
 	StrictSNIHost  bool   `toml:"strict_sni_host"`
+	HSTS           bool   `toml:"hsts"`
 	API            API    `toml:"api"`
 	ACME           ACME   `toml:"acme"`
 	Redis          Redis  `toml:"redis"`

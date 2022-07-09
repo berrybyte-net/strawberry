@@ -24,7 +24,7 @@ func TestForward(t *testing.T) {
 
 	stor := store.NewMemory()
 	// 100MB
-	fs := httptest.NewServer(NewForward(stor, 100000000, false))
+	fs := httptest.NewServer(NewForward(stor, 100000000, false, false))
 	defer fs.Close()
 
 	stor.PutSeed(context.Background(), stripPort(strings.TrimPrefix(fs.URL, "http://")), tgts.URL)
