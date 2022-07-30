@@ -174,7 +174,7 @@ func main() {
 		})
 	})
 	apiRtr.Delete("/seeds/{name}", handler.NewDeleteSeed(stor).ServeHTTP)
-	apiRtr.Put("/seeds", handler.NewPutSeed(stor).ServeHTTP)
+	apiRtr.Post("/seeds", handler.NewPostSeed(stor).ServeHTTP)
 
 	apiSrv := &http.Server{
 		Addr:         ":" + strconv.Itoa(cfg.API.Port),
@@ -185,15 +185,10 @@ func main() {
 	}
 	if cfg.API.UseSSL {
 		apiSrv.TLSConfig = &tls.Config{
-			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				return cmgr.GetCertificate(hello)
-			},
 			NextProtos: []string{
 				// Enable HTTP/2
 				"h2",
 				"http/1.1",
-				// Enable TLS-ALPN ACME challenges
-				acme.ALPNProto,
 			},
 			// https://blog.cloudflare.com/exposing-go-on-the-internet/
 			CipherSuites: []uint16{
@@ -216,7 +211,7 @@ func main() {
 			zap.String("host", "0.0.0.0"),
 			zap.Int("port", cfg.API.Port),
 		)
-		if err := apiSrv.ListenAndServeTLS("", ""); err != nil {
+		if err := apiSrv.ListenAndServeTLS(cfg.API.CertFile, cfg.API.KeyFile); err != nil {
 			lgr.Fatal(
 				"could not listen and serve api",
 				zap.String("host", "0.0.0.0"),

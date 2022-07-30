@@ -9,17 +9,17 @@ import (
 	"github.com/go-chi/render"
 )
 
-type PutSeed struct {
+type PostSeed struct {
 	stor store.Store
 }
 
-func NewPutSeed(stor store.Store) http.Handler {
-	return &PutSeed{
+func NewPostSeed(stor store.Store) http.Handler {
+	return &PostSeed{
 		stor: stor,
 	}
 }
 
-func (h *PutSeed) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *PostSeed) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var data struct {
 		Name   string `json:"name"`
 		Target string `json:"target"`
