@@ -13,13 +13,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestPutSeed(t *testing.T) {
+func TestPostSeed(t *testing.T) {
 	w := httptest.NewRecorder()
 
-	NewPutSeed(store.NewMemory()).ServeHTTP(
+	NewPostSeed(store.NewMemory()).ServeHTTP(
 		w,
 		httptest.NewRequest(
-			http.MethodPut,
+			http.MethodPost,
 			"/seeds",
 			bytes.NewBufferString(`{"name": "strawberry.amogus.systems", "target": "https://berrybyte.net"}`),
 		),
