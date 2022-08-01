@@ -184,6 +184,11 @@ func main() {
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
+	lgr.Info(
+		"configuring api server",
+		zap.String("host", "0.0.0.0"),
+		zap.Int("port", cfg.API.Port),
+	)
 	if cfg.API.UseSSL {
 		apiSrv.TLSConfig = &tls.Config{
 			NextProtos: []string{
@@ -210,12 +215,16 @@ func main() {
 		if cfg.API.Domain != "" {
 			append(apiSrv.TLSConfig.NextProtos, acme.ALPNProto)
 			apiSrv.TLSConfig.GetCertificate = cmgr.GetCertificate
+
+			if err := apiSrv.ListenAndServeTLS("", ""); err != nil {
+				lgr.Fatal(
+					"could not listen and serve api",
+					zap.String("host", "0.0.0.0"),
+					zap.Int("port", cfg.API.Port),
+					zap.Error(err),
+				)
+			}
 		}
-		lgr.Info(
-			"configuring api server",
-			zap.String("host", "0.0.0.0"),
-			zap.Int("port", cfg.API.Port),
-		)
 		if err := apiSrv.ListenAndServeTLS(cfg.API.CertFile, cfg.API.KeyFile); err != nil {
 			lgr.Fatal(
 				"could not listen and serve api",
