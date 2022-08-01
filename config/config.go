@@ -19,6 +19,7 @@ type Config struct {
 
 type API struct {
 	UseSSL     bool     `toml:"use_ssl"`
+	Domain     string   `toml:"domain"`
 	CertFile   string   `toml:"cert_file"`
 	KeyFile    string   `toml:"key_file"`
 	Port       int      `toml:"port"`

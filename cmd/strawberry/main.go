@@ -66,6 +66,9 @@ func main() {
 		Prompt: autocert.AcceptTOS,
 		Cache:  autocert.DirCache(cfg.CertDirectory),
 		HostPolicy: func(ctx context.Context, host string) error {
+			if cfg.API.Domain == host {
+				return nil
+			}
 			if _, err := stor.Seed(ctx, host); err != nil {
 				return err
 			}
@@ -107,9 +110,7 @@ func main() {
 		Addr:    ":443",
 		Handler: handler.NewForward(stor, cfg.MaxBodyBytes, cfg.StrictSNIHost, cfg.HSTS),
 		TLSConfig: &tls.Config{
-			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				return cmgr.GetCertificate(hello)
-			},
+			GetCertificate: cmgr.GetCertificate,
 			NextProtos: []string{
 				// Enable HTTP/2
 				"h2",
@@ -205,6 +206,10 @@ func main() {
 				tls.CurveP256,
 				tls.X25519,
 			},
+		}
+		if cfg.API.Domain != "" {
+			append(apiSrv.TLSConfig.NextProtos, acme.ALPNProto)
+			apiSrv.TLSConfig.GetCertificate = cmgr.GetCertificate
 		}
 		lgr.Info(
 			"configuring api server",

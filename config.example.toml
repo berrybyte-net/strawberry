@@ -8,6 +8,7 @@ hsts = true
 
 [api]
 use_ssl = false
+domain = ""
 cert_file = ""
 key_file = ""
 port = 8080
