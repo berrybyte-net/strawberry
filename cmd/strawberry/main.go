@@ -213,7 +213,7 @@ func main() {
 			},
 		}
 		if cfg.API.Domain != "" {
-			append(apiSrv.TLSConfig.NextProtos, acme.ALPNProto)
+			apiSrv.TLSConfig.NextProtos = append(apiSrv.TLSConfig.NextProtos, acme.ALPNProto)
 			apiSrv.TLSConfig.GetCertificate = cmgr.GetCertificate
 
 			if err := apiSrv.ListenAndServeTLS("", ""); err != nil {
