@@ -1,0 +1,21 @@
+version: "3.9"
+services:
+  strawberry:
+    container_name: "strawberry"
+    build: "./"
+    depends_on:
+      - "redis"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - "./certs:/etc/strawberry/certs"
+      - "./config.toml:/etc/strawberry/config.toml"
+  redis:
+    container_name: "redis"
+    image: "redis:alpine"
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - "./data:/data"

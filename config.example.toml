@@ -7,8 +7,10 @@ strict_sni_host = true
 hsts = true
 
 [api]
-use_ssl = true
-port = 8443
+use_ssl = false
+cert_file = ""
+key_file = ""
+port = 8080
 token = ""
 allowed_ips = []
 

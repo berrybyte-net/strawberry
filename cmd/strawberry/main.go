@@ -24,7 +24,7 @@ import (
 
 func main() {
 	var cfgPath string
-	flag.StringVar(&cfgPath, "config", "config.toml", "path to configuration file")
+	flag.StringVar(&cfgPath, "config", "/etc/strawberry/config.toml", "path to configuration file")
 	flag.Parse()
 
 	lgr, _ := zap.NewProduction()
