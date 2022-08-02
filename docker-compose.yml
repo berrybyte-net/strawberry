@@ -2,7 +2,7 @@ version: "3.9"
 services:
   strawberry:
     container_name: "strawberry"
-    build: "./"
+    image: "ghcr.io/berrybyte-net/strawberry:develop"
     depends_on:
       - "redis"
     ports:
