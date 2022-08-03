@@ -2,6 +2,7 @@ version: "3.9"
 services:
   strawberry:
     container_name: "strawberry"
+    restart: "unless-stopped"
     image: "ghcr.io/berrybyte-net/strawberry:develop"
     depends_on:
       - "redis"
@@ -14,6 +15,7 @@ services:
       - "./config.toml:/etc/strawberry/config.toml"
   redis:
     container_name: "redis"
+    restart: "unless-stopped"
     image: "redis:alpine"
     ports:
       - "127.0.0.1:6379:6379"
